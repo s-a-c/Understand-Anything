@@ -128,3 +128,34 @@ export {
   type IgnoreFilter,
 } from "./ignore-filter.js";
 export { generateStarterIgnoreFile } from "./ignore-generator.js";
+export { RUNNER_VERSION } from "./runner/types.js";
+export type {
+  RegistryEntry,
+  ProjectRegistry,
+  ProviderProfile,
+  IgnorePolicy,
+  PreAnalysisSnapshot,
+  GenerationManifest,
+  GenerationMeta,
+  Generation,
+  CurrentPointer,
+  RunnerEvent,
+  RunnerEventPhase,
+  RunnerEventOutcome,
+  RunnerRunOptions,
+  RunnerResult,
+} from "./runner/types.js";
+export { resolveProject, loadRegistry, defaultRegistry } from "./runner/registry.js";
+export { computeIgnoreDigest } from "./runner/ignore.js";
+export {
+  capturePreAnalysisSnapshot,
+  compareSnapshots,
+} from "./runner/snapshot.js";
+export { createEmitter, parseRunnerEvent } from "./runner/events.js";
+export {
+  stageGeneration,
+  publishStaged,
+  discardStaged,
+  readCurrent,
+} from "./runner/publication.js";
+export { runProject, validateProviderProfile, redactedProfileId } from "./runner/host.js";
