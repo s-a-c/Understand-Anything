@@ -19,7 +19,7 @@
 
 import { existsSync } from "node:fs";
 import { defaultRegistryPath, loadRegistry } from "./registry.js";
-import { runProject } from "./host.js";
+import { runJob } from "./job.js";
 import { parseRunnerEvent } from "./events.js";
 import type { ProviderProfile, RunnerEvent } from "./types.js";
 
@@ -30,12 +30,12 @@ function fail(message: string): never {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const projectId = args[0] ?? "";
+  const scope = args[0] ?? "";
   if (
     args.length !== 1 ||
-    !/^[a-z0-9][a-z0-9-]*$/.test(projectId)
+    !/^[a-z0-9][a-z0-9-]*$/.test(scope)
   ) {
-    fail("usage: ua-runner <project-id> (exactly one canonical id; no paths or flags)");
+    fail("usage: ua-runner <project-id|all> (exactly one canonical id or 'all'; no paths or flags)");
   }
 
   const homeDir = process.env.HOME ?? "";
@@ -56,6 +56,10 @@ async function main(): Promise<void> {
   }
   const registry = loadRegistryFile(registryPath);
 
+  if (scope !== "all" && !registry.some((e) => e.id === scope)) {
+    fail(`unknown project id: ${scope}`);
+  }
+
   // Profile is required and strictly validated by the host.
   const profile = loadProfile();
 
@@ -70,18 +74,41 @@ async function main(): Promise<void> {
   };
 
   const forceFull = process.env.UA_RUNNER_FORCE_FULL === "1";
+  const projectDeadlineMs = positiveIntEnv("UA_RUNNER_PROJECT_DEADLINE_SECONDS");
+  const jobDeadlineMs = positiveIntEnv("UA_RUNNER_JOB_DEADLINE_SECONDS");
 
-  const result = await runProject({
-    projectId,
+  // SIGINT/SIGTERM cancel the job cooperatively; the job layer terminates
+  // tracked children and releases the corpus lock.
+  const controller = new AbortController();
+  for (const name of ["SIGINT", "SIGTERM"] as const) {
+    process.on(name, () => controller.abort());
+  }
+
+  const result = await runJob({
+    scope,
     registry,
     profile,
     emit,
+    homeDir,
     forceFull,
+    ...(projectDeadlineMs ? { projectDeadlineMs } : {}),
+    ...(jobDeadlineMs ? { jobDeadlineMs } : {}),
+    signal: controller.signal,
   });
 
-  if (!result.ok) {
-    process.exitCode = 1;
+  if (result.busy) process.exitCode = 3;
+  else if (result.cancelled) process.exitCode = 130;
+  else if (!result.allOk) process.exitCode = 1;
+}
+
+function positiveIntEnv(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) {
+    fail(`${name} must be a positive integer (seconds)`);
   }
+  return value * 1000;
 }
 
 function loadRegistryFile(path: string) {

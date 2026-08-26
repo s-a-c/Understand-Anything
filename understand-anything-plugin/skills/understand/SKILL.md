@@ -44,6 +44,8 @@ Throughout execution, report progress to the user at each phase transition and d
 
 Determine whether to run a full analysis or incremental update.
 
+0. **Corpus lock check (non-interactive runners).** The non-interactive runner (`ua-runner`) holds a shared corpus lock at `$XDG_STATE_HOME/ua/corpus.lock` (default `~/.local/state/ua/corpus.lock`) while analyzing or publishing. If that file exists, read its `pid` and `startedAt`: a live PID means an automated run is active — report the conflict to the user and **STOP** rather than racing it. A dead PID or a file older than six hours is stale and may be ignored.
+
 1. **Resolve `PROJECT_ROOT`:**
    - Parse `$ARGUMENTS` for a non-flag token (any argument that does not start with `--`). If found, treat it as the target directory path.
      - If the path is relative, resolve it against the current working directory.

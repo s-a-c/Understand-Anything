@@ -15,6 +15,7 @@ import {
   discardStaged,
   readCurrent,
 } from "../publication.js";
+import { RUNNER_VERSION } from "../types.js";
 import type { GenerationMeta, PreAnalysisSnapshot } from "../types.js";
 
 function makeGraphProject(): { root: string; uaDir: string } {
@@ -90,7 +91,7 @@ describe("stageGeneration", () => {
     expect(existsSync(join(staged.dir, "knowledge-graph.json"))).toBe(true);
     expect(existsSync(join(staged.dir, "fingerprints.json"))).toBe(true);
     expect(existsSync(join(staged.dir, "generation.json"))).toBe(true);
-    expect(staged.manifest.runnerVersion).toBe("1.0.0");
+    expect(staged.manifest.runnerVersion).toBe(RUNNER_VERSION);
   });
 
   it("rejects an invalid graph and leaves no staged output", () => {

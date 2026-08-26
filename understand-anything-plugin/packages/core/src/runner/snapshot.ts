@@ -7,23 +7,18 @@
  */
 
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
 import type { PreAnalysisSnapshot } from "./types.js";
+import { trackedExecFile } from "./procs.js";
 
 const GIT_TIMEOUT_MS = 10_000;
 const GIT_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
-function runGit(cwd: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "git",
-      args,
-      { cwd, encoding: "utf-8", timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER_BYTES, windowsHide: true },
-      (error, stdout) => {
-        if (error) reject(error);
-        else resolve(stdout);
-      },
-    );
+function runGit(cwd: string, args: string[], signal?: AbortSignal): Promise<string> {
+  return trackedExecFile("git", args, {
+    cwd,
+    timeoutMs: GIT_TIMEOUT_MS,
+    maxBufferBytes: GIT_MAX_BUFFER_BYTES,
+    signal,
   });
 }
 
@@ -42,22 +37,28 @@ const UA_DATA_EXCLUDES = [
  */
 export async function capturePreAnalysisSnapshot(
   projectRoot: string,
+  options?: { signal?: AbortSignal },
 ): Promise<PreAnalysisSnapshot> {
-  const head = (await runGit(projectRoot, ["rev-parse", "HEAD"])).trim();
+  const signal = options?.signal;
+  const head = (await runGit(projectRoot, ["rev-parse", "HEAD"], signal)).trim();
 
   // Dirty set excludes the UA data dirs themselves (they change as we write).
   const [unstaged, staged, untracked] = await Promise.all([
-    runGit(projectRoot, ["diff", "--name-only", "-z", "--", ".", ...UA_DATA_EXCLUDES]),
-    runGit(projectRoot, ["diff", "--cached", "--name-only", "-z", "--", ".", ...UA_DATA_EXCLUDES]),
-    runGit(projectRoot, [
-      "ls-files",
-      "--others",
-      "--exclude-standard",
-      "-z",
-      "--",
-      ".",
-      ...UA_DATA_EXCLUDES,
-    ]),
+    runGit(projectRoot, ["diff", "--name-only", "-z", "--", ".", ...UA_DATA_EXCLUDES], signal),
+    runGit(projectRoot, ["diff", "--cached", "--name-only", "-z", "--", ".", ...UA_DATA_EXCLUDES], signal),
+    runGit(
+      projectRoot,
+      [
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+        ".",
+        ...UA_DATA_EXCLUDES,
+      ],
+      signal,
+    ),
   ]);
 
   const dirtyFiles = [...new Set([...unstaged, ...staged, ...untracked].filter((p) => p.length > 0))].sort();

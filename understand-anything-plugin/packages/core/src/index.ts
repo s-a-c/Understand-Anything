@@ -146,6 +146,15 @@ export type {
   RunnerResult,
 } from "./runner/types.js";
 export { resolveProject, loadRegistry, defaultRegistryPath } from "./runner/registry.js";
+export {
+  acquireCorpusLock,
+  releaseCorpusLock,
+  corpusLockPath,
+  lockHolderFor,
+  LOCK_HARD_CAP_MS,
+} from "./runner/lock.js";
+export { runJob, DEFAULT_JOB_DEADLINE_MS, DEFAULT_PROJECT_DEADLINE_MS } from "./runner/job.js";
+export type { JobResult, JobProjectOutcome } from "./runner/job.js";
 export { computeIgnoreDigest } from "./runner/ignore.js";
 export {
   capturePreAnalysisSnapshot,

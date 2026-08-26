@@ -86,6 +86,28 @@ export async function runProject(options: RunnerRunOptions, deps: HostDeps = {})
   const { projectId, registry, profile, emit: emitRaw, forceFull } = options;
   const emit = createEmitter(projectId, emitRaw);
 
+  // Deadline controller: a finite server-owned timer aborts an internal
+  // signal the whole pipeline observes. External cancellation (if any) is
+  // linked into the same signal; only the timer marks the run timedOut.
+  let timedOut = false;
+  const internalController = new AbortController();
+  const signal = internalController.signal;
+  const onExternalAbort = () => internalController.abort();
+  options.signal?.addEventListener("abort", onExternalAbort, { once: true });
+  if (options.signal?.aborted) onExternalAbort();
+  let deadlineTimer: NodeJS.Timeout | null = null;
+  if (options.projectDeadlineMs) {
+    deadlineTimer = setTimeout(() => {
+      timedOut = true;
+      internalController.abort();
+    }, options.projectDeadlineMs);
+    deadlineTimer.unref?.();
+  }
+
+  // Staged output must never survive an aborted run: tracked here so any
+  // failure/cancel/timeout path can remove it before returning.
+  let stagedForCleanup: { dir: string } | null = null;
+
   try {
     // 1. Resolve canonical id — arbitrary paths never reach this point.
     const entry: RegistryEntry | undefined = registry.find((e) => e.id === projectId);
@@ -106,8 +128,9 @@ export async function runProject(options: RunnerRunOptions, deps: HostDeps = {})
     // 3. Capture pre-analysis git snapshot.
     let pre: PreAnalysisSnapshot;
     try {
-      pre = await capturePreAnalysisSnapshot(entry.root);
-    } catch {
+      pre = await capturePreAnalysisSnapshot(entry.root, { signal });
+    } catch (error) {
+      if (signal?.aborted) throw error;
       emit.emit("error", "git snapshot failed", { outcome: "failed" });
       return { ok: false, projectId, error: "git snapshot failed" };
     }
@@ -145,6 +168,7 @@ export async function runProject(options: RunnerRunOptions, deps: HostDeps = {})
       pluginRegistry,
       baseline: incrementalCompatible && current !== null ? current.generation : null,
       forceFull: forceFull ?? false,
+      signal,
       onProgress: (phase, counts) => emit.emit("analysis", phase, { counts }),
     });
 
@@ -167,14 +191,16 @@ export async function runProject(options: RunnerRunOptions, deps: HostDeps = {})
       fingerprintsJson: JSON.stringify(analysis.fingerprints, null, 2),
       metaBase,
     });
+    stagedForCleanup = staged;
 
     // 8. Verify inputs did not move during analysis.
     emit.emit("stability-check", "verifying input stability");
     let post: PreAnalysisSnapshot;
     try {
-      post = await capturePreAnalysisSnapshot(entry.root);
-    } catch {
+      post = await capturePreAnalysisSnapshot(entry.root, { signal });
+    } catch (error) {
       discardStaged(staged);
+      if (signal?.aborted) throw error;
       emit.emit("error", "post-analysis snapshot failed", { outcome: "failed" });
       return { ok: false, projectId, error: "post-analysis snapshot failed" };
     }
@@ -188,6 +214,7 @@ export async function runProject(options: RunnerRunOptions, deps: HostDeps = {})
     // 9. Publish atomically behind the current pointer.
     emit.emit("publication", "publishing generation");
     const generation = publishStaged(staged);
+    stagedForCleanup = null;
 
     emit.emit("complete", "generation published", {
       outcome: "ok",
@@ -200,8 +227,23 @@ export async function runProject(options: RunnerRunOptions, deps: HostDeps = {})
     });
     return { ok: true, projectId, generation };
   } catch (error) {
+    if (stagedForCleanup) {
+      discardStaged(stagedForCleanup);
+      stagedForCleanup = null;
+    }
+    if (signal?.aborted) {
+      if (timedOut) {
+        emit.emit("error", "project deadline exceeded", { outcome: "timeout" });
+        return { ok: false, projectId, error: "deadline exceeded", timedOut: true };
+      }
+      emit.emit("error", "run cancelled", { outcome: "cancelled" });
+      return { ok: false, projectId, error: "cancelled", cancelled: true };
+    }
     const message = error instanceof Error ? error.message : "unknown error";
     emit.emit("error", "run failed", { outcome: "failed" });
     return { ok: false, projectId, error: message };
+  } finally {
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+    options.signal?.removeEventListener("abort", onExternalAbort);
   }
 }

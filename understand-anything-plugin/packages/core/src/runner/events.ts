@@ -75,7 +75,8 @@ export function parseRunnerEvent(line: string): RunnerEvent | null {
   };
   if (
     candidate.outcome === "ok" || candidate.outcome === "skipped" ||
-    candidate.outcome === "failed" || candidate.outcome === "cancelled"
+    candidate.outcome === "failed" || candidate.outcome === "cancelled" ||
+    candidate.outcome === "timeout"
   ) {
     event.outcome = candidate.outcome;
   }

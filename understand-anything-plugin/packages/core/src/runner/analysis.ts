@@ -12,7 +12,7 @@
  * state falls back to safe full analysis.
  */
 
-import { execFile } from "node:child_process";
+import { trackedExecFile } from "./procs.js";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { createIgnoreFilter } from "../ignore-filter.js";
@@ -33,6 +33,7 @@ export interface StructuralScanInput {
   baseline: { dir: string; meta: import("./types.js").GenerationMeta } | null;
   forceFull: boolean;
   onProgress?: (phase: string, counts?: Record<string, number>) => void;
+  signal?: AbortSignal;
 }
 
 export interface StructuralScanResult {
@@ -80,17 +81,18 @@ export async function runStructuralScan(input: StructuralScanInput): Promise<Str
   onProgress?.("enumerating files");
 
   // 1. Enumerate candidate files.
-  const gitFiles = await new Promise<string[] | null>((resolvePromise) => {
-    execFile(
+  let gitFiles: string[] | null;
+  try {
+    const stdout = await trackedExecFile(
       "git",
       ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-      { cwd: projectRoot, encoding: "utf-8", timeout: 15_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true },
-      (error, stdout) => {
-        if (error) resolvePromise(null);
-        else resolvePromise(stdout.split("\0").filter((p) => p.length > 0));
-      },
+      { cwd: projectRoot, timeoutMs: 15_000, signal: input.signal },
     );
-  });
+    gitFiles = stdout.split("\0").filter((p) => p.length > 0);
+  } catch {
+    if (input.signal?.aborted) throw abortError();
+    gitFiles = null;
+  }
   const candidates = gitFiles ?? walkFiles(projectRoot);
 
   // 2. Apply existing ignore precedence (built-in + data-dir + project),
@@ -136,6 +138,7 @@ export async function runStructuralScan(input: StructuralScanInput): Promise<Str
   const reusedCount = { value: 0 };
 
   for (const filePath of filtered) {
+    if (input.signal?.aborted) throw abortError();
     const absolutePath = join(projectRoot, filePath);
     let fileContent: string;
     try {
@@ -251,6 +254,13 @@ export async function runStructuralScan(input: StructuralScanInput): Promise<Str
     analyzedFiles: filtered.length,
     mode,
   };
+}
+
+
+function abortError(): Error {
+  const error = new Error("aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 function complexityFor(analysis: StructuralAnalysis): "simple" | "moderate" | "complex" {

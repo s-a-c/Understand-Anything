@@ -7,7 +7,7 @@
 
 // ---- Runner version ----
 
-export const RUNNER_VERSION = "1.0.0" as const;
+export const RUNNER_VERSION = "1.1.0" as const;
 
 // ---- Project registry ----
 
@@ -123,7 +123,7 @@ export type RunnerEventPhase =
   | "complete"
   | "error";
 
-export type RunnerEventOutcome = "ok" | "skipped" | "failed" | "cancelled";
+export type RunnerEventOutcome = "ok" | "skipped" | "failed" | "cancelled" | "timeout";
 
 export interface RunnerEvent {
   /** Protocol version. */
@@ -155,6 +155,10 @@ export interface RunnerRunOptions {
   emit: (event: RunnerEvent) => void;
   /** Optional: force full analysis even if incremental is possible. */
   forceFull?: boolean;
+  /** Cooperative cancellation; checked between phases and files. */
+  signal?: AbortSignal;
+  /** Finite per-project deadline in ms; expiry yields a timeout outcome. */
+  projectDeadlineMs?: number;
 }
 
 // ---- Runner result ----
@@ -168,4 +172,8 @@ export interface RunnerResult {
   generation?: Generation;
   /** Error message (if not ok). */
   error?: string;
+  /** True when the run ended because its deadline expired. */
+  timedOut?: boolean;
+  /** True when the run ended because of external cancellation. */
+  cancelled?: boolean;
 }
