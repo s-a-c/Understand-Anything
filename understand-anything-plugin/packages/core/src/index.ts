@@ -145,7 +145,7 @@ export type {
   RunnerRunOptions,
   RunnerResult,
 } from "./runner/types.js";
-export { resolveProject, loadRegistry, defaultRegistry } from "./runner/registry.js";
+export { resolveProject, loadRegistry, defaultRegistryPath } from "./runner/registry.js";
 export { computeIgnoreDigest } from "./runner/ignore.js";
 export {
   capturePreAnalysisSnapshot,

@@ -5,7 +5,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { ProjectRegistry, RegistryEntry } from "./types.js";
 
 /**
@@ -53,31 +53,12 @@ export function loadRegistry(filePath: string): ProjectRegistry {
 }
 
 /**
- * The canonical 12-project corpus. Ids are stable identifiers; roots resolve
- * under the operator's home directory and entries whose root does not exist
- * are filtered out at load time.
+ * Default well-known registry location: `$XDG_CONFIG_HOME/ua/registry.json`,
+ * falling back to `~/.config/ua/registry.json`. The registry itself is
+ * operator configuration and is never shipped in the repository; see
+ * `packages/core/registry.example.json` for the schema.
  */
-export function defaultRegistry(homeDir: string): ProjectRegistry {
-  const projects: Array<{ id: string; relativeRoot: string; name: string }> = [
-    { id: "home", relativeRoot: "", name: "Home workspace" },
-    { id: "samples-20260717", relativeRoot: "Herd/samples-20260717", name: "Samples 20260717" },
-    { id: "caddy", relativeRoot: "infra/caddy", name: "Central Caddy" },
-    { id: "control-plane", relativeRoot: "infra/control-plane", name: "Control Plane" },
-    { id: "docs-site", relativeRoot: "infra/docs-site", name: "Docs Site" },
-    { id: "hermes-agent", relativeRoot: "infra/hermes-agent", name: "Hermes Agent" },
-    { id: "infisical", relativeRoot: "infra/infisical", name: "Infisical" },
-    { id: "odysseus", relativeRoot: "infra/odysseus", name: "Odysseus" },
-    { id: "siyuan", relativeRoot: "infra/siyuan", name: "SiYuan" },
-    { id: "shared", relativeRoot: "infra/shared", name: "Infra Shared" },
-    { id: "agent-skills", relativeRoot: "Projects/agent-skills", name: "Agent Skills" },
-    { id: "the-hub--spoke", relativeRoot: "Projects/the-hub--spoke", name: "The Hub & Spoke" },
-  ];
-
-  return projects
-    .filter((p) => p.relativeRoot.length === 0 || existsSync(resolve(homeDir, p.relativeRoot)))
-    .map((p) => ({
-      id: p.id,
-      root: p.relativeRoot.length === 0 ? homeDir : resolve(homeDir, p.relativeRoot),
-      name: p.name,
-    }));
+export function defaultRegistryPath(homeDir: string): string {
+  const configHome = process.env.XDG_CONFIG_HOME ?? join(homeDir, ".config");
+  return join(configHome, "ua", "registry.json");
 }

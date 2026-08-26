@@ -10,12 +10,15 @@
  *
  * Usage: node dist/runner/cli.js <project-id>
  * Env:
- *   UA_RUNNER_REGISTRY   path to a JSON registry file (optional; default built-in 12)
+ *   UA_RUNNER_REGISTRY   path to a JSON registry file (optional; falls back to
+ *                        $XDG_CONFIG_HOME/ua/registry.json, then
+ *                        ~/.config/ua/registry.json — see registry.example.json)
  *   UA_RUNNER_PROFILE    JSON provider profile string (required)
  *   UA_RUNNER_FORCE_FULL set to "1" to force full analysis
  */
 
-import { defaultRegistry, loadRegistry } from "./registry.js";
+import { existsSync } from "node:fs";
+import { defaultRegistryPath, loadRegistry } from "./registry.js";
 import { runProject } from "./host.js";
 import { parseRunnerEvent } from "./events.js";
 import type { ProviderProfile, RunnerEvent } from "./types.js";
@@ -38,9 +41,20 @@ async function main(): Promise<void> {
   const homeDir = process.env.HOME ?? "";
   if (homeDir.length === 0) fail("HOME is not set");
 
-  // Registry: operator-supplied file wins; otherwise the built-in 12.
-  const registryPath = process.env.UA_RUNNER_REGISTRY;
-  const registry = registryPath ? loadRegistryFile(registryPath) : defaultRegistry(homeDir);
+  // Registry: explicit env file wins; otherwise the well-known config path.
+  // Fail closed when neither exists — never fall back to anything implicit.
+  const envPath = process.env.UA_RUNNER_REGISTRY;
+  const registryPath = envPath ?? defaultRegistryPath(homeDir);
+  if (!existsSync(registryPath)) {
+    const source = envPath
+      ? `UA_RUNNER_REGISTRY (${envPath})`
+      : `the well-known path (${registryPath})`;
+    fail(
+      `no project registry found at ${source}; ` +
+        `create one — see packages/core/registry.example.json`,
+    );
+  }
+  const registry = loadRegistryFile(registryPath);
 
   // Profile is required and strictly validated by the host.
   const profile = loadProfile();

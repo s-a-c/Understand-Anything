@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveProject, loadRegistry, defaultRegistry } from "../registry.js";
+import { resolveProject, loadRegistry, defaultRegistryPath } from "../registry.js";
 
 describe("resolveProject", () => {
   const registry = [
@@ -60,39 +60,42 @@ describe("loadRegistry", () => {
     writeFileSync(file, JSON.stringify([{ id: "only-id" }]));
     expect(() => loadRegistry(file)).toThrow(/id.*root|root.*id/i);
   });
-});
 
-describe("defaultRegistry", () => {
-  it("returns only projects whose roots exist on disk", () => {
-    const home = mkdtempSync(join(tmpdir(), "ua-home-"));
-    mkdirSync(join(home, "infra", "caddy"), { recursive: true });
-    const registry = defaultRegistry(home);
-    const ids = registry.map((e) => e.id);
-    expect(ids).toContain("caddy");
-    expect(ids).not.toContain("control-plane");
-  });
-
-  it("exactly covers the canonical corpus ids", () => {
-    const home = mkdtempSync(join(tmpdir(), "ua-home-"));
-    for (const rel of [
-      "Herd/samples-20260717", "infra/caddy", "infra/control-plane", "infra/docs-site",
-      "infra/hermes-agent", "infra/infisical", "infra/odysseus", "infra/siyuan",
-      "infra/shared", "Projects/agent-skills", "Projects/the-hub--spoke",
-    ]) {
-      mkdirSync(join(home, rel), { recursive: true });
-    }
-    const ids = defaultRegistry(home).map((e) => e.id).sort();
-    expect(ids).toEqual([
-      "agent-skills", "caddy", "control-plane", "docs-site", "hermes-agent",
-      "home", "infisical", "odysseus", "samples-20260717", "shared", "siyuan",
-      "the-hub--spoke",
-    ]);
-  });
-
-  it("never contains path-like ids", () => {
-    const registry = defaultRegistry(tmpdir());
+  it("loads the shipped registry.example.json without mutation", () => {
+    // The example lives at packages/core/registry.example.json; resolve from
+    // this test's location (src/runner/__tests__) relative to src/.
+    const example = join(__dirname, "..", "..", "..", "registry.example.json");
+    expect(existsSync(example)).toBe(true);
+    const registry = loadRegistry(example);
+    expect(registry.length).toBeGreaterThan(0);
     for (const entry of registry) {
       expect(entry.id).toMatch(/^[a-z0-9][a-z0-9-]*$/);
+      expect(entry.root).toMatch(/^\//);
+    }
+  });
+});
+
+describe("defaultRegistryPath", () => {
+  it("honors XDG_CONFIG_HOME when set", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ua-xdg-"));
+    const original = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = dir;
+    try {
+      expect(defaultRegistryPath(tmpdir())).toBe(join(dir, "ua", "registry.json"));
+    } finally {
+      if (original === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = original;
+    }
+  });
+
+  it("falls back to ~/.config when XDG is unset", () => {
+    const home = mkdtempSync(join(tmpdir(), "ua-home-"));
+    const original = process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_CONFIG_HOME;
+    try {
+      expect(defaultRegistryPath(home)).toBe(join(home, ".config", "ua", "registry.json"));
+    } finally {
+      if (original !== undefined) process.env.XDG_CONFIG_HOME = original;
     }
   });
 });
